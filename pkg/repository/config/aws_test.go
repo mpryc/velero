@@ -23,6 +23,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 func TestGetS3ResticEnvVars(t *testing.T) {
@@ -36,9 +37,6 @@ func TestGetS3ResticEnvVars(t *testing.T) {
 			name:     "when config is empty, no env vars are returned",
 			config:   map[string]string{},
 			expected: map[string]string{},
-			getS3Credentials: func(config map[string]string) (*aws.Credentials, error) {
-				return nil, nil
-			},
 		},
 		{
 			name: "when config contains profile key, profile env var is set with profile value",
@@ -57,43 +55,30 @@ func TestGetS3ResticEnvVars(t *testing.T) {
 			expected: map[string]string{
 				"AWS_SHARED_CREDENTIALS_FILE": "/tmp/credentials/path/to/secret",
 			},
-			getS3Credentials: func(config map[string]string) (*aws.Credentials, error) {
-				return nil, nil
-			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 
-			// Mock GetS3Credentials
-			if tc.getS3Credentials != nil {
-				getS3CredentialsFunc = tc.getS3Credentials
-			} else {
-				getS3CredentialsFunc = GetS3Credentials
-			}
-
 			actual, err := GetS3ResticEnvVars(tc.config)
-
 			require.NoError(t, err)
 
-			// Avoid direct comparison of expected and actual to prevent exposing secrets.
-			// This may occur if the test doesn't set getS3Credentials func correctly.
-			if !reflect.DeepEqual(tc.expected, actual) {
-				t.Errorf("Expected and actual results do not match for test case %q", tc.name)
-				for key, value := range actual {
-					if expVal, err := tc.expected[key]; !err || expVal != value {
-						if actualVal, ok := actual[key]; !ok {
-							t.Errorf("Key %q is missing in actual result", key)
-						} else if expVal != actualVal {
-							t.Errorf("Key %q: expected value %q", key, expVal)
-						}
-					}
-				}
-			}
+			// scrub secret key and token from results to prevent printing diffs containing secret.
+			maps.DeleteFunc(actual, isKeyToScrub)
+			maps.DeleteFunc(tc.expected, isKeyToScrub)
+			require.Equal(t, tc.expected, actual)
 
 		})
 	}
+}
+
+// Keys we don't want to show up in unit test results
+func isKeyToScrub (k, v string) bool {
+	if k == awsKeyIDEnvVar || k == awsSecretKeyEnvVar || k == awsSessTokenEnvVar {
+		return true
+	}
+	return false
 }
 
 func TestGetS3CredentialsCorrectlyUseProfile(t *testing.T) {
