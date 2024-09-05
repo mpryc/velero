@@ -1670,14 +1670,30 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 
 	// restore the managedFields
 	withoutManagedFields := createdObj.DeepCopy()
+	withoutManagedFieldsJSON, err := json.MarshalIndent(withoutManagedFields, "", "  ")
+	if err == nil {
+		ctx.log.Infof("withoutManagedFields object before setting managed fields: %s", string(withoutManagedFieldsJSON))
+	} else {
+		ctx.log.Errorf("error marshaling withoutManagedFields: %v", err)
+	}
+
 	createdObj.SetManagedFields(obj.GetManagedFields())
+	createdObjJSON, err := json.MarshalIndent(createdObj, "", "  ")
+	if err == nil {
+		ctx.log.Infof("createdObj after setting managed fields: %s", string(createdObjJSON))
+	} else {
+		ctx.log.Errorf("error marshaling createdObj: %v", err)
+	}
+
 	patchBytes, err := generatePatch(withoutManagedFields, createdObj)
+
 	if err != nil {
 		ctx.log.Errorf("error generating patch for managed fields %s: %v", kube.NamespaceAndName(obj), err)
 		errs.Add(namespace, err)
 		return warnings, errs, itemExists
 	}
 	if patchBytes != nil {
+		ctx.log.Infof("Generated patch for managed fields: %s", string(patchBytes))
 		if _, err = resourceClient.Patch(name, patchBytes); err != nil {
 			ctx.log.Errorf("error patch for managed fields %s: %v", kube.NamespaceAndName(obj), err)
 			if !apierrors.IsNotFound(err) {
